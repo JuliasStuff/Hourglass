@@ -25,6 +25,10 @@ let data = loadData();
 let tickHandle = null;
 let syncDebounce = null;
 
+// Snapshot used to auto-detect when the user changed types/activities so we
+// can bump `data.settingsUpdatedAt` and let remote merges resolve correctly.
+let _settingsSnapshot = null;
+
 function loadData() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
@@ -36,7 +40,11 @@ function loadData() {
             types: parsed.types || [],
             activities: parsed.activities || [],
             sessions: parsed.sessions || [],
-            current: parsed.current || null
+            current: parsed.current || null,
+            settingsUpdatedAt:
+                typeof parsed.settingsUpdatedAt === "number"
+                    ? parsed.settingsUpdatedAt
+                    : 0
         };
     } catch (e) {
         console.warn("Bad data, resetting", e);
@@ -44,8 +52,336 @@ function loadData() {
     }
 }
 
+function settingsFingerprint() {
+    return JSON.stringify([data.types, data.activities]);
+}
+
 function saveData() {
+    const fp = settingsFingerprint();
+    if (_settingsSnapshot !== null && fp !== _settingsSnapshot) {
+        data.settingsUpdatedAt = Date.now();
+    }
+    _settingsSnapshot = fp;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    schedulePush();
+}
+
+// ── Cross-device sync (JSONBin.io) ───────────────────────────────
+// Credentials are stored per-device in localStorage. Set them up via the
+// Sync modal (gear icon in the header). Create a free bin at jsonbin.io
+// and paste the bin ID + access key into the modal on each device.
+const SYNC_KEY = "hourglass.sync.v1";
+const SYNC_DEBOUNCE_MS = 1500;
+
+let syncCreds   = loadSyncCreds();
+let lastSyncAt  = null;
+let lastSyncMsg = "";
+let pushTimer   = null;
+let pushInFlight = false;
+let pushQueued   = false;
+
+function loadSyncCreds() {
+    try {
+        const raw = localStorage.getItem(SYNC_KEY);
+        if (!raw) return { binId: "", accessKey: "" };
+        const p = JSON.parse(raw);
+        return {
+            binId: (p.binId || "").trim(),
+            accessKey: (p.accessKey || "").trim()
+        };
+    } catch {
+        return { binId: "", accessKey: "" };
+    }
+}
+
+function saveSyncCreds(binId, accessKey) {
+    syncCreds = { binId: binId.trim(), accessKey: accessKey.trim() };
+    localStorage.setItem(SYNC_KEY, JSON.stringify(syncCreds));
+}
+
+function clearSyncCreds() {
+    syncCreds = { binId: "", accessKey: "" };
+    localStorage.removeItem(SYNC_KEY);
+}
+
+function syncEnabled() {
+    return !!(syncCreds.binId && syncCreds.accessKey);
+}
+
+function setSyncState(state, message) {
+    const dot = document.getElementById("sync-dot");
+    if (dot) dot.dataset.state = state;
+    if (state === "ok")    { lastSyncAt = new Date(); lastSyncMsg = ""; }
+    if (state === "error") { lastSyncMsg = message || "Sync failed"; }
+    if (state === "off")   { lastSyncMsg = ""; }
+    renderSyncModalIfOpen();
+}
+
+function buildSyncPayload() {
+    // `current` is per-device (the running timer) and never synced.
+    return {
+        types: data.types,
+        activities: data.activities,
+        sessions: data.sessions,
+        settingsUpdatedAt: data.settingsUpdatedAt || 0
+    };
+}
+
+async function pullRemote() {
+    if (!syncEnabled()) return null;
+    const url = `https://api.jsonbin.io/v3/b/${encodeURIComponent(syncCreds.binId)}/latest`;
+    const res = await fetch(url, {
+        headers: { "X-Access-Key": syncCreds.accessKey }
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`pull HTTP ${res.status}${text ? `: ${text.slice(0, 120)}` : ""}`);
+    }
+    const body = await res.json();
+    return body && body.record && typeof body.record === "object"
+        ? body.record
+        : null;
+}
+
+async function pushRemote(payload) {
+    if (!syncEnabled()) return;
+    const url = `https://api.jsonbin.io/v3/b/${encodeURIComponent(syncCreds.binId)}`;
+    const res = await fetch(url, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Access-Key": syncCreds.accessKey
+        },
+        body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`push HTTP ${res.status}${text ? `: ${text.slice(0, 120)}` : ""}`);
+    }
+}
+
+function schedulePush() {
+    if (!syncEnabled()) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(doPush, SYNC_DEBOUNCE_MS);
+}
+
+async function doPush() {
+    if (!syncEnabled()) return;
+    if (pushInFlight) { pushQueued = true; return; }
+    pushInFlight = true;
+    setSyncState("syncing");
+    try {
+        await pushRemote(buildSyncPayload());
+        setSyncState("ok");
+    } catch (err) {
+        setSyncState("error", err.message || String(err));
+    } finally {
+        pushInFlight = false;
+        if (pushQueued) {
+            pushQueued = false;
+            schedulePush();
+        }
+    }
+}
+
+function mergeRemote(remote) {
+    if (!remote || typeof remote !== "object") return false;
+    let changed = false;
+
+    // Sessions: union by id (additive event log).
+    if (Array.isArray(remote.sessions)) {
+        const have = new Set(data.sessions.map((s) => s.id));
+        for (const s of remote.sessions) {
+            if (s && s.id && !have.has(s.id)) {
+                data.sessions.push(s);
+                have.add(s.id);
+                changed = true;
+            }
+        }
+        if (changed) {
+            data.sessions.sort(
+                (a, b) => (a.startedAt || 0) - (b.startedAt || 0)
+            );
+        }
+    }
+
+    // Types & activities: last-writer-wins at the dataset level so renames
+    // and deletes propagate cleanly. Falls back to union if timestamps are
+    // missing (first-time sync).
+    const remoteAt = Number(remote.settingsUpdatedAt || 0);
+    const localAt  = Number(data.settingsUpdatedAt || 0);
+
+    if (remoteAt > 0 && remoteAt > localAt) {
+        if (Array.isArray(remote.types)) {
+            data.types = remote.types;
+            changed = true;
+        }
+        if (Array.isArray(remote.activities)) {
+            data.activities = remote.activities;
+            changed = true;
+        }
+        data.settingsUpdatedAt = remoteAt;
+    } else if (remoteAt === 0 && localAt === 0) {
+        // Neither side has been edited deliberately — fold in any remote
+        // entries the local doesn't have, so a fresh device picks up
+        // customizations made before this sync was wired up.
+        const addUnique = (localList, remoteList) => {
+            if (!Array.isArray(remoteList)) return false;
+            const ids = new Set(localList.map((x) => x.id));
+            let touched = false;
+            for (const item of remoteList) {
+                if (item && item.id && !ids.has(item.id)) {
+                    localList.push(item);
+                    ids.add(item.id);
+                    touched = true;
+                }
+            }
+            return touched;
+        };
+        if (addUnique(data.types, remote.types)) changed = true;
+        if (addUnique(data.activities, remote.activities)) changed = true;
+    }
+
+    return changed;
+}
+
+function rerenderEverythingAfterSync() {
+    try { renderTimer(); } catch {}
+    try { renderQuickStart(); } catch {}
+    try { renderActivitiesTab(); } catch {}
+    try { renderStats(); } catch {}
+}
+
+async function syncOnStartup() {
+    if (!syncEnabled()) {
+        setSyncState("off");
+        return;
+    }
+    setSyncState("syncing");
+    try {
+        const remote = await pullRemote();
+        const changed = mergeRemote(remote);
+        if (changed) {
+            // Persist merged result without bumping settings timestamp again.
+            _settingsSnapshot = settingsFingerprint();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            rerenderEverythingAfterSync();
+        }
+        setSyncState("ok");
+        // Push merged state so other devices see anything they were missing.
+        schedulePush();
+    } catch (err) {
+        setSyncState("error", err.message || String(err));
+    }
+}
+
+// ── Sync modal UI ─────────────────────────────────────────────────
+function openSyncModal() {
+    const modal = document.getElementById("sync-modal");
+    if (!modal) return;
+    modal.hidden = false;
+    renderSyncModal();
+}
+
+function closeSyncModal() {
+    const modal = document.getElementById("sync-modal");
+    if (!modal) return;
+    modal.hidden = true;
+}
+
+function renderSyncModalIfOpen() {
+    const modal = document.getElementById("sync-modal");
+    if (modal && !modal.hidden) renderSyncModal();
+}
+
+function renderSyncModal() {
+    const body = document.getElementById("sync-body");
+    if (!body) return;
+
+    const dot   = document.getElementById("sync-dot");
+    const state = dot ? dot.dataset.state : "off";
+    const statusText = {
+        ok:      lastSyncAt ? `Connected • last sync ${lastSyncAt.toLocaleTimeString()}` : "Connected",
+        syncing: "Syncing…",
+        error:   `Error: ${lastSyncMsg || "sync failed"}`,
+        off:     "Not connected"
+    }[state] || "Not connected";
+
+    const configured = syncEnabled();
+
+    body.innerHTML = `
+        <div class="sync-status-row">
+            <span class="sync-dot" data-state="${state}"></span>
+            <span>${escapeHtml(statusText)}</span>
+        </div>
+
+        <div class="sync-step">
+            Syncs your activities and sessions across devices via a free
+            <b>JSONBin.io</b> bin. Create a bin once, paste the bin ID and
+            your access key on each device.
+        </div>
+
+        <div class="field">
+            <label for="sync-bin">Bin ID</label>
+            <input id="sync-bin" type="text" autocomplete="off"
+                   placeholder="e.g. 6a3d6f6df5f4af5e2930575f"
+                   value="${escapeAttr(syncCreds.binId)}" />
+        </div>
+        <div class="field">
+            <label for="sync-key">Access key (X-Access-Key)</label>
+            <input id="sync-key" type="text" autocomplete="off"
+                   placeholder="$2a$10$…"
+                   value="${escapeAttr(syncCreds.accessKey)}" />
+        </div>
+
+        <div class="sync-actions">
+            <button class="btn-sm" id="sync-save" type="button">
+                ${configured ? "Update & sync" : "Save & connect"}
+            </button>
+            <button class="btn-sm" id="sync-now" type="button"
+                    ${configured ? "" : "disabled"}>Sync now</button>
+            <button class="btn-sm danger" id="sync-forget" type="button"
+                    ${configured ? "" : "disabled"}>Forget</button>
+        </div>
+
+        <div class="sync-step">
+            <b>Setup:</b> Sign up free at
+            <code>jsonbin.io</code>, create an empty bin (initial content
+            <code>{}</code>), copy the bin ID from the URL and your access
+            key from <b>API Keys</b>. Paste both above on every device you
+            want to sync.
+        </div>
+    `;
+
+    const saveBtn   = document.getElementById("sync-save");
+    const syncBtn   = document.getElementById("sync-now");
+    const forgetBtn = document.getElementById("sync-forget");
+
+    saveBtn.addEventListener("click", () => {
+        const binId = document.getElementById("sync-bin").value;
+        const key   = document.getElementById("sync-key").value;
+        if (!binId.trim() || !key.trim()) {
+            toast("Enter both a bin ID and access key");
+            return;
+        }
+        saveSyncCreds(binId, key);
+        toast("Sync connected ✨");
+        syncOnStartup();
+        renderSyncModal();
+    });
+    syncBtn.addEventListener("click", () => {
+        if (!syncEnabled()) return;
+        syncOnStartup();
+    });
+    forgetBtn.addEventListener("click", () => {
+        if (!syncEnabled()) return;
+        if (!confirm("Forget sync credentials on this device?")) return;
+        clearSyncCreds();
+        setSyncState("off");
+        toast("Sync disconnected");
+        renderSyncModal();
+    });
 }
 
 function uid(prefix) {
@@ -821,6 +1157,18 @@ function init() {
     if (data.current) {
         startTick();
     }
+
+    // Initialize settings fingerprint so the first edit (not the first save
+    // after load) is what bumps settingsUpdatedAt.
+    _settingsSnapshot = settingsFingerprint();
+
+    // Sync wiring
+    document.getElementById("btn-open-sync").addEventListener("click", openSyncModal);
+    document.getElementById("sync-close").addEventListener("click", closeSyncModal);
+    document.getElementById("sync-modal").addEventListener("click", (e) => {
+        if (e.target.id === "sync-modal") closeSyncModal();
+    });
+    syncOnStartup();
 
     if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("service-worker.js").catch(() => {});
