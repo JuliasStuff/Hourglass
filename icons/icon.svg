@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Hourglass">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff1d6"/>
+      <stop offset="55%" stop-color="#ffd8e6"/>
+      <stop offset="100%" stop-color="#cfe7ff"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffd28a"/>
+      <stop offset="100%" stop-color="#ff8e5a"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.35"/>
+    </linearGradient>
+    <linearGradient id="sand" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe27a"/>
+      <stop offset="100%" stop-color="#f6b94a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded-square background -->
+  <rect x="0" y="0" width="512" height="512" rx="96" ry="96" fill="url(#bg)"/>
+
+  <!-- Soft inner shadow ring -->
+  <rect x="14" y="14" width="484" height="484" rx="84" ry="84"
+        fill="none" stroke="rgba(255,142,90,0.15)" stroke-width="4"/>
+
+  <!-- Top wooden cap -->
+  <rect x="120" y="96" width="272" height="36" rx="14" fill="url(#rim)"/>
+  <!-- Bottom wooden cap -->
+  <rect x="120" y="380" width="272" height="36" rx="14" fill="url(#rim)"/>
+
+  <!-- Glass body: two triangles meeting at center -->
+  <!-- Top bulb -->
+  <path d="M 150 132
+           L 362 132
+           Q 362 158 332 196
+           L 280 250
+           Q 256 268 232 250
+           L 180 196
+           Q 150 158 150 132 Z"
+        fill="url(#glass)" stroke="#ff8e5a" stroke-width="6" stroke-linejoin="round"/>
+  <!-- Bottom bulb -->
+  <path d="M 150 380
+           L 362 380
+           Q 362 354 332 316
+           L 280 262
+           Q 256 244 232 262
+           L 180 316
+           Q 150 354 150 380 Z"
+        fill="url(#glass)" stroke="#ff8e5a" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- Sand in top bulb (partial — most of it has drained) -->
+  <path d="M 196 156
+           L 316 156
+           Q 314 174 296 198
+           L 268 232
+           Q 256 240 244 232
+           L 216 198
+           Q 198 174 196 156 Z"
+        fill="url(#sand)"/>
+
+  <!-- Sand stream falling through neck -->
+  <rect x="252" y="244" width="8" height="60" rx="3" fill="#f6b94a"/>
+
+  <!-- Sand pile in bottom bulb -->
+  <path d="M 180 380
+           Q 256 300 332 380 Z"
+        fill="url(#sand)"/>
+  <!-- Mound highlight -->
+  <path d="M 210 380
+           Q 256 332 302 380 Z"
+        fill="#ffe27a" opacity="0.85"/>
+
+  <!-- Center pinch glints -->
+  <circle cx="256" cy="256" r="6" fill="#ff8e5a"/>
+</svg>
