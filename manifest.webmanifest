@@ -1,0 +1,25 @@
+{
+    "name": "Hourglass",
+    "short_name": "Hourglass",
+    "description": "A playful time tracker. Catch your time before the sand runs out!",
+    "start_url": "./index.html",
+    "scope": "./",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#fff1d6",
+    "theme_color": "#ffb37a",
+    "icons": [
+        {
+            "src": "icons/icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any"
+        },
+        {
+            "src": "icons/icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "maskable"
+        }
+    ]
+}

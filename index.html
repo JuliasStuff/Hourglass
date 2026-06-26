@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffb37a" />
+    <title>Hourglass</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/icon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <header class="topbar">
+        <button class="icon-btn header-btn" id="btn-open-sync" type="button" title="Sync" aria-label="Sync">
+            <span class="sync-dot" id="sync-dot" data-state="off"></span>
+            <span aria-hidden="true">⚙️</span>
+        </button>
+        <div class="brand">
+            <span class="brand-icon" aria-hidden="true">⏳</span>
+            <h1>Hourglass</h1>
+        </div>
+        <p class="tagline">Catch your time before the sand runs out!</p>
+    </header>
+
+    <main>
+        <!-- TIMER TAB -->
+        <section id="tab-timer" class="tab active">
+            <div class="clock-wrap">
+                <svg class="clock" id="clock-svg" viewBox="0 0 200 200" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="rimGrad" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stop-color="#ffd28a" />
+                            <stop offset="100%" stop-color="#ff8e5a" />
+                        </linearGradient>
+                        <linearGradient id="faceGrad" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stop-color="#fff6e8" />
+                            <stop offset="100%" stop-color="#ffe8d4" />
+                        </linearGradient>
+                    </defs>
+                    <circle cx="100" cy="100" r="94" fill="url(#rimGrad)" />
+                    <circle cx="100" cy="100" r="84" fill="url(#faceGrad)" />
+                    <path id="clock-sweep" d="" fill="#ff8e5a" opacity="0.22" />
+                    <g id="clock-ticks"></g>
+                    <g id="clock-numbers" font-family="-apple-system, system-ui, sans-serif" font-weight="800" font-size="14" fill="#6b5440" text-anchor="middle" dominant-baseline="central"></g>
+                    <line id="hand-hour" x1="100" y1="100" x2="100" y2="60" stroke="#3d2b1f" stroke-width="6" stroke-linecap="round" />
+                    <line id="hand-minute" x1="100" y1="100" x2="100" y2="38" stroke="#3d2b1f" stroke-width="4" stroke-linecap="round" />
+                    <line id="hand-second" x1="100" y1="100" x2="100" y2="28" stroke="#ff8e5a" stroke-width="2" stroke-linecap="round" />
+                    <circle cx="100" cy="100" r="7" fill="#3d2b1f" />
+                    <circle cx="100" cy="100" r="2.5" fill="#ff8e5a" />
+                </svg>
+            </div>
+
+            <div class="timer-display">
+                <div class="current-activity" id="current-activity">Pick something fun ↓</div>
+                <div class="time-readout" id="time-readout">00:00:00</div>
+            </div>
+
+            <div class="controls">
+                <button id="btn-start-stop" class="btn-big" type="button">Start ✨</button>
+            </div>
+
+            <h2 class="section-title">Quick start</h2>
+            <div class="activity-grid" id="activity-grid">
+                <!-- Filled by JS -->
+            </div>
+        </section>
+
+        <!-- ACTIVITIES TAB -->
+        <section id="tab-activities" class="tab">
+            <h2 class="section-title">Activity Types</h2>
+            <div class="types-list" id="types-list"></div>
+            <button class="btn-add" id="btn-add-type" type="button">+ New type</button>
+
+            <h2 class="section-title">Activities</h2>
+            <div class="activities-list" id="activities-list"></div>
+            <button class="btn-add" id="btn-add-activity" type="button">+ New activity</button>
+        </section>
+
+        <!-- STATS TAB -->
+        <section id="tab-stats" class="tab">
+            <div class="range-picker">
+                <button data-range="today" class="range-btn active" type="button">Today</button>
+                <button data-range="week" class="range-btn" type="button">This week</button>
+                <button data-range="month" class="range-btn" type="button">This month</button>
+                <button data-range="all" class="range-btn" type="button">All time</button>
+            </div>
+
+            <div class="stats-summary" id="stats-summary"></div>
+
+            <h2 class="section-title">By type</h2>
+            <div class="bars" id="stats-types"></div>
+
+            <h2 class="section-title">By activity</h2>
+            <div class="bars" id="stats-activities"></div>
+
+            <h2 class="section-title">Recent sessions</h2>
+            <div class="sessions-list" id="sessions-list"></div>
+        </section>
+    </main>
+
+    <nav class="tabbar">
+        <button class="tab-btn active" data-tab="timer" type="button">
+            <span class="tab-emoji">⏳</span>
+            <span>Timer</span>
+        </button>
+        <button class="tab-btn" data-tab="activities" type="button">
+            <span class="tab-emoji">🎨</span>
+            <span>Activities</span>
+        </button>
+        <button class="tab-btn" data-tab="stats" type="button">
+            <span class="tab-emoji">📊</span>
+            <span>Stats</span>
+        </button>
+    </nav>
+
+    <!-- MODAL -->
+    <div class="modal" id="modal" hidden>
+        <div class="modal-card">
+            <h3 id="modal-title">Edit</h3>
+            <div class="modal-body" id="modal-body"></div>
+            <div class="modal-actions">
+                <button class="btn-ghost" id="modal-cancel" type="button">Cancel</button>
+                <button class="btn-primary" id="modal-save" type="button">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+
+    <!-- SYNC MODAL -->
+    <div class="modal" id="sync-modal" hidden>
+        <div class="modal-card sync-card">
+            <h3>Sync ⚙️</h3>
+            <div class="modal-body" id="sync-body"></div>
+            <div class="modal-actions">
+                <button class="btn-ghost" id="sync-close" type="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
