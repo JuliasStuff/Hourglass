@@ -1,7 +1,7 @@
 // Hourglass — playful time tracker
 
 const STORAGE_KEY = "hourglass.v1";
-const EMOJI_CHOICES = ["⏳", "📚", "💻", "🎨", "🏃", "🧘", "🍳", "🎮", "📝", "🎵", "🛌", "🚿", "🧹", "🛒", "📞", "✍️", "📖", "💪", "🚗", "🐶", "🌱", "☕", "🍕", "🎬", "🧠", "🎯", "💼", "🏠", "❤️", "✨"];
+const EMOJI_CHOICES = ["⏳", "📚", "💻", "🎨", "🏃", "🧘", "🍳", "🎮", "📝", "🎵", "🛌", "🚿", "🧹", "🛒", "📞", "✍️", "📖", "💪", "🚗", "🐶", "🌱", "☕", "🍕", "🎬", "🧠", "🎯", "💼", "🏠", "👪", "❤️", "✨"];
 const COLOR_CHOICES = ["#ffb37a", "#ff9ec7", "#8ec5ff", "#9be7c4", "#ffe27a", "#c4a3ff", "#ff8e8e", "#7fd8d8", "#b8d97a", "#ffc1a3"];
 
 const DEFAULT_DATA = {
@@ -44,11 +44,8 @@ function loadData() {
     }
 }
 
-function saveData(opts) {
+function saveData() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    if (!opts || opts.dirty !== false) {
-        markDirty();
-    }
 }
 
 function uid(prefix) {
