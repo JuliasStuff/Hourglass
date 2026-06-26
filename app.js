@@ -483,14 +483,18 @@ function renderTimer() {
         const act = findActivity(data.current.activityId);
         btn.textContent = "Stop 🛑";
         btn.classList.add("stop");
-        label.textContent = (act ? act.emoji + " " + act.name : "Tracking…");
-        label.classList.add("active");
+        if (label) {
+            label.textContent = (act ? act.emoji + " " + act.name : "Tracking…");
+            label.classList.add("active");
+        }
         clk.classList.add("running");
     } else {
         btn.textContent = "Start ✨";
         btn.classList.remove("stop");
-        label.textContent = "Pick something fun ↓";
-        label.classList.remove("active");
+        if (label) {
+            label.textContent = "Pick something fun ↓";
+            label.classList.remove("active");
+        }
         clk.classList.remove("running");
         document.getElementById("time-readout").textContent = "00:00:00";
     }
