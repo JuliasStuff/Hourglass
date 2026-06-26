@@ -1,7 +1,7 @@
 // Hourglass — playful time tracker
 
 const STORAGE_KEY = "hourglass.v1";
-const EMOJI_CHOICES = ["📚", "💻", "🎨", "🏃", "🧘", "📱", "📺", "🌅", "🤖", "🫶", "🛋️", "📝", "🎵", "🛌", "🚿", "🧹", "🛒", "📞", "✍️", "📖", "🚗", "🌱", "☕", "🎬", "🧠", "💼", "🏠", "👪", "❤️", "✨"];
+const EMOJI_CHOICES = ["📚", "💻", "🎨", "🏃", "🧘", "📱", "📺", "🌅", "🤖", "🫶", "🛋️", "📝", "🛌", "🚿", "🧹", "🛒", "📖", "🚗", "🌱", "☕", "🧠", "💼", "🏠", "👪", "❤️"];
 const COLOR_CHOICES = ["#ffb37a", "#ff9ec7", "#8ec5ff", "#9be7c4", "#ffe27a", "#c4a3ff", "#ff8e8e", "#7fd8d8", "#b8d97a", "#ffc1a3"];
 
 const DEFAULT_DATA = {
@@ -767,6 +767,47 @@ function openActivityModal(id) {
     renderModal();
 }
 
+function openSessionModal(id) {
+    const existing = id ? data.sessions.find((s) => s.id === id) : null;
+    const defaultActivityId =
+        (existing && existing.activityId) ||
+        (data.activities[0] ? data.activities[0].id : "");
+    const now = Date.now();
+    modalState = {
+        kind: "session",
+        id: existing ? existing.id : null,
+        activityId: defaultActivityId,
+        startedAt: existing ? existing.startedAt : now - 30 * 60 * 1000,
+        endedAt: existing ? existing.endedAt : now
+    };
+    renderModal();
+}
+
+function tsToLocalInputValue(ts) {
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+        "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+
+function localInputToTs(s) {
+    if (!s) return NaN;
+    const t = new Date(s).getTime();
+    return isNaN(t) ? NaN : t;
+}
+
+function updateSessionDuration() {
+    const out = document.getElementById("m-duration");
+    if (!out) return;
+    const start = localInputToTs(document.getElementById("m-start").value);
+    const end   = localInputToTs(document.getElementById("m-end").value);
+    if (isNaN(start) || isNaN(end) || end <= start) {
+        out.textContent = "—";
+        return;
+    }
+    out.textContent = fmtDurationShort(end - start);
+}
+
 function renderModal() {
     const modal = document.getElementById("modal");
     const title = document.getElementById("modal-title");
@@ -784,6 +825,37 @@ function renderModal() {
             '<div class="field"><label>Color</label><div class="color-picker" id="m-color"></div></div>';
         buildEmojiPicker("m-emoji", modalState.emoji, (e) => { modalState.emoji = e; });
         buildColorPicker("m-color", modalState.color, (c) => { modalState.color = c; });
+    } else if (modalState.kind === "session") {
+        title.textContent = (modalState.id ? "Edit" : "New") + " session";
+        const opts = data.activities.map((a) => {
+            const t = findType(a.typeId);
+            const label = (a.emoji || "⏳") + " " + a.name + (t ? " · " + t.name : "");
+            return '<option value="' + a.id + '"' + (a.id === modalState.activityId ? " selected" : "") + '>' + escapeHtml(label) + '</option>';
+        }).join("");
+        body.innerHTML =
+            '<div class="field"><label>Activity</label><select id="m-activity">' + (opts || '<option value="">— none —</option>') + '</select></div>' +
+            '<div class="field-row">' +
+                '<div class="field"><label>Started</label><input id="m-start" type="datetime-local" value="' + tsToLocalInputValue(modalState.startedAt) + '" /></div>' +
+                '<div class="field"><label>Ended</label><input id="m-end" type="datetime-local" value="' + tsToLocalInputValue(modalState.endedAt) + '" /></div>' +
+            '</div>' +
+            '<div class="duration-readout">Duration: <span id="m-duration">—</span></div>' +
+            (modalState.id ? '<button class="btn-delete" id="m-delete" type="button">Delete session 🗑️</button>' : '');
+        updateSessionDuration();
+        document.getElementById("m-start").addEventListener("input", updateSessionDuration);
+        document.getElementById("m-end").addEventListener("input", updateSessionDuration);
+        if (modalState.id) {
+            document.getElementById("m-delete").addEventListener("click", () => {
+                if (!confirm("Delete this session?")) {
+                    return;
+                }
+                data.sessions = data.sessions.filter((s) => s.id !== modalState.id);
+                saveData();
+                modalState = null;
+                renderModal();
+                renderStats();
+                toast("Deleted ✂️");
+            });
+        }
     } else {
         title.textContent = (modalState.id ? "Edit" : "New") + " activity";
         const opts = data.types.map((t) =>
@@ -839,6 +911,48 @@ function buildColorPicker(containerId, selected, onPick) {
 
 function saveModal() {
     if (!modalState) {
+        return;
+    }
+    if (modalState.kind === "session") {
+        const activityId = document.getElementById("m-activity").value || null;
+        const start = localInputToTs(document.getElementById("m-start").value);
+        const end   = localInputToTs(document.getElementById("m-end").value);
+        if (!activityId) {
+            toast("Pick an activity first 🎨");
+            return;
+        }
+        if (isNaN(start) || isNaN(end)) {
+            toast("Pick valid start & end times ⏰");
+            return;
+        }
+        if (end <= start) {
+            toast("End must be after start ⏰");
+            return;
+        }
+        const durationMs = end - start;
+        const isEdit = !!modalState.id;
+        if (isEdit) {
+            const s = data.sessions.find((x) => x.id === modalState.id);
+            if (s) {
+                s.activityId = activityId;
+                s.startedAt  = start;
+                s.endedAt    = end;
+                s.durationMs = durationMs;
+            }
+        } else {
+            data.sessions.push({
+                id: uid("s"),
+                activityId,
+                startedAt: start,
+                endedAt: end,
+                durationMs
+            });
+        }
+        saveData();
+        modalState = null;
+        renderModal();
+        renderStats();
+        toast(isEdit ? "Updated ✏️" : "Added " + fmtDurationShort(durationMs) + " ✨");
         return;
     }
     const nameInput = document.getElementById("m-name");
@@ -1012,7 +1126,8 @@ function renderSessionsList(sessions) {
         const act = findActivity(s.activityId);
         const when = new Date(s.startedAt);
         const row = document.createElement("div");
-        row.className = "session-row";
+        row.className = "session-row clickable";
+        row.title = "Tap to edit";
         row.innerHTML =
             '<span class="session-emoji">' + (act ? act.emoji : "⏳") + '</span>' +
             '<div class="session-info">' +
@@ -1020,6 +1135,7 @@ function renderSessionsList(sessions) {
                 '<div class="session-time">' + fmtWhen(when) + '</div>' +
             '</div>' +
             '<div class="session-dur">' + fmtDurationShort(s.durationMs) + '</div>';
+        row.addEventListener("click", () => openSessionModal(s.id));
         list.appendChild(row);
     });
 }
@@ -1130,6 +1246,14 @@ function init() {
             return;
         }
         openActivityModal(null);
+    });
+    document.getElementById("btn-add-session").addEventListener("click", () => {
+        if (data.activities.length === 0) {
+            toast("Add an activity first 🎨");
+            switchTab("activities");
+            return;
+        }
+        openSessionModal(null);
     });
 
     document.getElementById("modal-save").addEventListener("click", saveModal);
