@@ -39,14 +39,14 @@ body {
 
 /* Topbar */
 .topbar {
-    padding: 18px 20px 6px;
+    padding: 6px 20px 4px;
     text-align: center;
     position: relative;
 }
 
 .header-btn {
     position: absolute;
-    top: 14px;
+    top: 4px;
     right: 14px;
 }
 
