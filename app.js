@@ -67,45 +67,24 @@ function saveData() {
 }
 
 // ── Cross-device sync (JSONBin.io) ───────────────────────────────
-// Credentials are stored per-device in localStorage. Set them up via the
-// Sync modal (gear icon in the header). Create a free bin at jsonbin.io
-// and paste the bin ID + access key into the modal on each device.
-const SYNC_KEY = "hourglass.sync.v1";
+// Credentials are hardcoded so every device picks up the same data
+// automatically with zero setup. Same pattern as Multiplication / Plotting.
+const JSONBIN_BIN_ID     = '6a3eecb8da38895dfe04bb53';
+const JSONBIN_ACCESS_KEY = '$2a$10$2hUFl1y/txNt36ElZsxiQ.4DPDZefkA51XCH1AQ8.cTrad9u7OSh2';
+const JSONBIN_URL        = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 const SYNC_DEBOUNCE_MS = 1500;
 
-let syncCreds   = loadSyncCreds();
 let lastSyncAt  = null;
 let lastSyncMsg = "";
 let pushTimer   = null;
 let pushInFlight = false;
 let pushQueued   = false;
 
-function loadSyncCreds() {
-    try {
-        const raw = localStorage.getItem(SYNC_KEY);
-        if (!raw) return { binId: "", accessKey: "" };
-        const p = JSON.parse(raw);
-        return {
-            binId: (p.binId || "").trim(),
-            accessKey: (p.accessKey || "").trim()
-        };
-    } catch {
-        return { binId: "", accessKey: "" };
-    }
-}
-
-function saveSyncCreds(binId, accessKey) {
-    syncCreds = { binId: binId.trim(), accessKey: accessKey.trim() };
-    localStorage.setItem(SYNC_KEY, JSON.stringify(syncCreds));
-}
-
-function clearSyncCreds() {
-    syncCreds = { binId: "", accessKey: "" };
-    localStorage.removeItem(SYNC_KEY);
-}
-
 function syncEnabled() {
-    return !!(syncCreds.binId && syncCreds.accessKey);
+    return JSONBIN_BIN_ID
+        && !JSONBIN_BIN_ID.startsWith('REPLACE_')
+        && JSONBIN_ACCESS_KEY
+        && !JSONBIN_ACCESS_KEY.startsWith('REPLACE_');
 }
 
 function setSyncState(state, message) {
@@ -114,7 +93,6 @@ function setSyncState(state, message) {
     if (state === "ok")    { lastSyncAt = new Date(); lastSyncMsg = ""; }
     if (state === "error") { lastSyncMsg = message || "Sync failed"; }
     if (state === "off")   { lastSyncMsg = ""; }
-    renderSyncModalIfOpen();
 }
 
 function buildSyncPayload() {
@@ -129,9 +107,8 @@ function buildSyncPayload() {
 
 async function pullRemote() {
     if (!syncEnabled()) return null;
-    const url = `https://api.jsonbin.io/v3/b/${encodeURIComponent(syncCreds.binId)}/latest`;
-    const res = await fetch(url, {
-        headers: { "X-Access-Key": syncCreds.accessKey }
+    const res = await fetch(`${JSONBIN_URL}/latest`, {
+        headers: { "X-Access-Key": JSONBIN_ACCESS_KEY }
     });
     if (!res.ok) {
         const text = await res.text().catch(() => "");
@@ -145,12 +122,11 @@ async function pullRemote() {
 
 async function pushRemote(payload) {
     if (!syncEnabled()) return;
-    const url = `https://api.jsonbin.io/v3/b/${encodeURIComponent(syncCreds.binId)}`;
-    const res = await fetch(url, {
+    const res = await fetch(JSONBIN_URL, {
         method: "PUT",
         headers: {
             "Content-Type": "application/json",
-            "X-Access-Key": syncCreds.accessKey
+            "X-Access-Key": JSONBIN_ACCESS_KEY
         },
         body: JSON.stringify(payload)
     });
@@ -276,111 +252,27 @@ async function syncOnStartup() {
     }
 }
 
-// ── Sync modal UI ─────────────────────────────────────────────────
-function openSyncModal() {
-    const modal = document.getElementById("sync-modal");
-    if (!modal) return;
-    modal.hidden = false;
-    renderSyncModal();
-}
-
-function closeSyncModal() {
-    const modal = document.getElementById("sync-modal");
-    if (!modal) return;
-    modal.hidden = true;
-}
-
-function renderSyncModalIfOpen() {
-    const modal = document.getElementById("sync-modal");
-    if (modal && !modal.hidden) renderSyncModal();
-}
-
-function renderSyncModal() {
-    const body = document.getElementById("sync-body");
-    if (!body) return;
-
-    const dot   = document.getElementById("sync-dot");
+// ── Sync trigger ──────────────────────────────────────────────────
+// Gear button click: trigger a manual sync and show status as a toast.
+function triggerManualSync() {
+    if (!syncEnabled()) {
+        toast("Sync not configured");
+        return;
+    }
+    const dot = document.getElementById("sync-dot");
     const state = dot ? dot.dataset.state : "off";
-    const statusText = {
-        ok:      lastSyncAt ? `Connected • last sync ${lastSyncAt.toLocaleTimeString()}` : "Connected",
-        syncing: "Syncing…",
-        error:   `Error: ${lastSyncMsg || "sync failed"}`,
-        off:     "Not connected"
-    }[state] || "Not connected";
-
-    const configured = syncEnabled();
-
-    body.innerHTML = `
-        <div class="sync-status-row">
-            <span class="sync-dot" data-state="${state}"></span>
-            <span>${escapeHtml(statusText)}</span>
-        </div>
-
-        <div class="sync-step">
-            Syncs your activities and sessions across devices via a free
-            <b>JSONBin.io</b> bin. Create a bin once, paste the bin ID and
-            your access key on each device.
-        </div>
-
-        <div class="field">
-            <label for="sync-bin">Bin ID</label>
-            <input id="sync-bin" type="text" autocomplete="off"
-                   placeholder="e.g. 6a3d6f6df5f4af5e2930575f"
-                   value="${escapeAttr(syncCreds.binId)}" />
-        </div>
-        <div class="field">
-            <label for="sync-key">Access key (X-Access-Key)</label>
-            <input id="sync-key" type="text" autocomplete="off"
-                   placeholder="$2a$10$…"
-                   value="${escapeAttr(syncCreds.accessKey)}" />
-        </div>
-
-        <div class="sync-actions">
-            <button class="btn-sm" id="sync-save" type="button">
-                ${configured ? "Update & sync" : "Save & connect"}
-            </button>
-            <button class="btn-sm" id="sync-now" type="button"
-                    ${configured ? "" : "disabled"}>Sync now</button>
-            <button class="btn-sm danger" id="sync-forget" type="button"
-                    ${configured ? "" : "disabled"}>Forget</button>
-        </div>
-
-        <div class="sync-step">
-            <b>Setup:</b> Sign up free at
-            <code>jsonbin.io</code>, create an empty bin (initial content
-            <code>{}</code>), copy the bin ID from the URL and your access
-            key from <b>API Keys</b>. Paste both above on every device you
-            want to sync.
-        </div>
-    `;
-
-    const saveBtn   = document.getElementById("sync-save");
-    const syncBtn   = document.getElementById("sync-now");
-    const forgetBtn = document.getElementById("sync-forget");
-
-    saveBtn.addEventListener("click", () => {
-        const binId = document.getElementById("sync-bin").value;
-        const key   = document.getElementById("sync-key").value;
-        if (!binId.trim() || !key.trim()) {
-            toast("Enter both a bin ID and access key");
-            return;
+    if (state === "syncing") {
+        toast("Syncing… 🔄");
+        return;
+    }
+    syncOnStartup().then(() => {
+        const newDot = document.getElementById("sync-dot");
+        const newState = newDot ? newDot.dataset.state : "off";
+        if (newState === "ok") {
+            toast("Synced ✨");
+        } else if (newState === "error") {
+            toast("Sync error: " + (lastSyncMsg || "unknown"));
         }
-        saveSyncCreds(binId, key);
-        toast("Sync connected ✨");
-        syncOnStartup();
-        renderSyncModal();
-    });
-    syncBtn.addEventListener("click", () => {
-        if (!syncEnabled()) return;
-        syncOnStartup();
-    });
-    forgetBtn.addEventListener("click", () => {
-        if (!syncEnabled()) return;
-        if (!confirm("Forget sync credentials on this device?")) return;
-        clearSyncCreds();
-        setSyncState("off");
-        toast("Sync disconnected");
-        renderSyncModal();
     });
 }
 
@@ -1291,11 +1183,7 @@ function init() {
     _settingsSnapshot = settingsFingerprint();
 
     // Sync wiring
-    document.getElementById("btn-open-sync").addEventListener("click", openSyncModal);
-    document.getElementById("sync-close").addEventListener("click", closeSyncModal);
-    document.getElementById("sync-modal").addEventListener("click", (e) => {
-        if (e.target.id === "sync-modal") closeSyncModal();
-    });
+    document.getElementById("btn-open-sync").addEventListener("click", triggerManualSync);
     syncOnStartup();
 
     if ("serviceWorker" in navigator) {
