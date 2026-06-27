@@ -1,4 +1,4 @@
-const CACHE = "hourglass-v11";
+const CACHE = "hourglass-v12";
 const ASSETS = [
     "./",
     "./index.html",
